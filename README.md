@@ -6,6 +6,18 @@ El objetivo central es comparar el rendimiento, la convergencia y la escalabilid
 1. **Integración 1D** (Método del Valor Medio).
 2. **Cálculo de Área Irregular 2D** (Método de Aceptación/Rechazo).
 
+### 📐 Geometrías Analizadas
+Para garantizar una comparación científica y algorítmica impecable, el sistema ha sido diseñado para resolver las mismas figuras bajo los dos enfoques diferentes (1D y 2D):
+
+1. **El Círculo Unitario ($r=1$):**
+   * **En Área 2D:** Se lanza dentro de una caja de límites $[-1, 1] \times [-1, 1]$ validando la condición matemática pura $x^2 + y^2 \le 1$.
+   * **En Integral 1D:** Se integra analíticamente la mitad superior del círculo mediante la función $f(x) = 2 \sqrt{1 - x^2}$ en el dominio $x \in [-1, 1]$.
+   * *Objetivo HPC:* Permite comparar qué operación es más costosa para la CPU: generar dos números aleatorios (x e y) vs generar uno solo pero forzar al hardware a evaluar una raíz cuadrada matemática (`sqrt()`).
+2. **La Parábola ($y = x^2$):**
+   * **En Área 2D:** Se comprueba si el dardo cae bajo la curva evaluando lógicamente $y \le x^2$ en la caja $[0, 1] \times [0, 1]$.
+   * **En Integral 1D:** Se integra clásicamente $f(x) = x^2$ sobre el dominio $[0, 1]$.
+   * *Objetivo HPC:* Al ser una función estrictamente multiplicativa y sin carga pesada, expone la latencia cruda de comunicación (overhead de MPI) al escalar a grandes cantidades de nodos.
+
 ---
 
 ## 🛡️ Decisiones de Diseño
@@ -17,10 +29,10 @@ A continuación, se detallan y justifican las decisiones de ingeniería tomadas 
 * **Lo que NO hicimos:** Decidimos **NO** implementar un esquema de distribución dinámica (Arquitectura Maestro-Trabajador / *Master-Worker*).
 * **Justificación:** El Método de Monte Carlo es un problema de naturaleza *Embarrassingly Parallel* (Vergonzosamente Paralelo). El costo de evaluar la función objetivo es idéntico en cada iteración. Un esquema Maestro-Trabajador hubiera introducido una cantidad masiva e innecesaria de comunicación entre los procesos (mensajes MPI de petición de tareas), arruinando la eficiencia.
 
-### 2. Generación de Números Aleatorios
-* **Lo que hicimos:** Inicializamos la semilla de aleatoriedad acoplando el reloj del sistema con el identificador único del proceso MPI (`srand(time(NULL) + rank)`).
-* **Justificación del problema:** En C, la función `rand()` genera una secuencia de números pseudoaleatorios. Si no sumábamos el `rank`, todos los procesos hubieran arrancado con exactamente la misma semilla del reloj. Esto hubiera sido un error fatal para Monte Carlo: en lugar de hacer $N$ simulaciones independientes, estaríamos haciendo repetidamente las mismas simulaciones, arruinando totalmente la estimación. Sumar el `rank` asegura que cada proceso explore secuencias distintas.
-* **Sobre bibliotecas avanzadas:** Para este nivel de aprendizaje, el ajuste manual de la semilla con `rand()` resuelve el problema práctico. Sin embargo, en un contexto de investigación científica real (física, climatología), `rand()` no garantiza que las secuencias de diferentes procesos no se superpongan con el tiempo. En esos casos, sería obligatorio utilizar bibliotecas de generadores paralelos avanzadas como *Mersenne Twister* o *SPRNG*, que garantizan independencia estadística absoluta entre hilos.
+### 2. Generación de Números Aleatorios (PRNG)
+* **Lo que hicimos:** Reemplazamos la función básica `rand()` por la familia `drand48()`. Para la semilla, eliminamos el reloj del sistema (`time(NULL)`) e implementamos una semilla reproducible: `srand48(semilla_base + rank * PRIMO)`.
+* **Justificación del Período (`drand48` vs `rand`):** En simulaciones de miles de millones de iteraciones, la función básica de C (`rand()`) se queda corta por su bajo *Período* (la cantidad de números que genera antes de volver a repetir exactamente la misma secuencia circularmente). Al usar `drand48()`, aumentamos el estado matemático a 48-bits, retrasando enormemente el punto en el que los números aleatorios empiezan a ciclar. Esto evita que nuestras simulaciones "revisiten" los mismos puntos una y otra vez, garantizando una convergencia estadística real.
+* **Justificación de la Semilla Reproducible y Distanciada:** Al quitar el reloj del sistema, garantizamos que las ejecuciones sean **reproducibles** (vital para poder replicar hallazgos en la investigación). Además, para evitar que los procesos MPI arranquen con secuencias idénticas, sumamos su `rank` multiplicado por un número primo grande (999983). Matemáticamente, esto aleja drásticamente el punto de partida (estado inicial) de cada proceso dentro de la ruleta aleatoria, evitando que sus flujos se superpongan prematuramente.
 
 ### 3. Metodología de Medición y Análisis
 * **Lo que hicimos:** Automatizar ejecuciones repetidas para el mismo tamaño de problema y recolectar los tiempos, para luego calcular métricas de rendimiento basadas en la **Mediana**.

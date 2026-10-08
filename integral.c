@@ -1,12 +1,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 #include <mpi.h>
 
-// Función a integrar en 1D: f(x) = x^2
+// ==========================================
+// SELECCIÓN DE FUNCIÓN PARA INTEGRAR
+// Descomenta solo un bloque a la vez
+// ==========================================
+
+// --- OPCIÓN 1: CÍRCULO (Radio 1) ---
+// La ecuación del círculo es x^2 + y^2 = 1. Despejando 'y', la curva superior es y = sqrt(1 - x^2).
+// Multiplicamos por 2 para abarcar tanto el área superior como la inferior del círculo.
+double funcion(double x) {
+    return 2.0 * sqrt(1.0 - x * x);
+}
+void obtener_limites_integracion(double *a, double *b) {
+    *a = -1.0;
+    *b = 1.0;
+}
+
+// --- OPCIÓN 2: FUNCIÓN X^2 ---
+/*
 double funcion(double x) {
     return x * x;
 }
+void obtener_limites_integracion(double *a, double *b) {
+    *a = 0.0;
+    *b = 1.0;
+}
+*/
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -14,18 +37,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Usamos long long para permitir miles de millones de simulaciones sin desbordamiento
+    // Usamos long long para miles de millones de simulaciones
     long long N = atoll(argv[1]);
-    double a = 0.0;
-    double b = 1.0;
+
+    // Desacoplamos los límites matemáticos del bloque principal
+    double a, b;
+    obtener_limites_integracion(&a, &b);
 
     int id, n_procesos;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
     MPI_Comm_size(MPI_COMM_WORLD, &n_procesos);
 
-    // Semilla distinta por proceso para la aleatoriedad
-    srand(time(NULL) + id * 1999);
+    // Semilla REPRODUCIBLE. Usamos una base fija + id multiplicado por un primo grande.
+    // Usamos srand48 en lugar de srand para obtener un mayor período pseudoaleatorio.
+    long int semilla_base = 12345;
+    srand48(semilla_base + id * 999983);
 
     // Sincronizamos todos los procesos antes de iniciar el reloj
     MPI_Barrier(MPI_COMM_WORLD);
@@ -41,7 +68,8 @@ int main(int argc, char** argv) {
     // Bucle de simulación 1D
     double suma_local = 0.0;
     for (long long i = 0; i < puntos_locales; i++) {
-        double x_rand = a + ((double)rand() / RAND_MAX) * (b - a);
+        // drand48() devuelve automáticamente un double entre 0.0 y 1.0
+        double x_rand = a + drand48() * (b - a);
         suma_local += funcion(x_rand);
     }
 
@@ -62,7 +90,6 @@ int main(int argc, char** argv) {
         printf("Simulaciones (N): %lld\n", N);
         printf("Procesos MPI    : %d\n", n_procesos);
         printf("Integral est.   : %f\n", integral);
-        printf("Valor analítico : 0.333333...\n");
         printf("Tiempo total    : %.6f segundos\n", tiempo_fin - tiempo_inicio);
         printf("========================================\n");
     }

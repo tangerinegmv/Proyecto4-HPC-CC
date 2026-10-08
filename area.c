@@ -3,14 +3,31 @@
 #include <time.h>
 #include <mpi.h>
 
-// Figura irregular (Ejemplo: Círculo x^2 + y^2 <= 1)
-// Devuelve 1 si el punto (x,y) está dentro, 0 si está fuera
+// ==========================================
+// SELECCIÓN DE FIGURA IRREGULAR
+// Descomenta solo un bloque a la vez
+// ==========================================
+
+// --- OPCIÓN 1: CÍRCULO (Radio 1) ---
 int dentro_figura_irregular(double x, double y) {
-    if (x * x + y * y <= 1.0) {
-        return 1;
-    }
-    return 0;
+    return (x * x + y * y <= 1.0) ? 1 : 0;
 }
+void obtener_limites_caja(double *xmin, double *xmax, double *ymin, double *ymax) {
+    *xmin = -1.0; *xmax = 1.0;
+    *ymin = -1.0; *ymax = 1.0;
+}
+
+// --- OPCIÓN 2: ÁREA BAJO LA CURVA X^2 ---
+/*
+int dentro_figura_irregular(double x, double y) {
+    // Solo contamos los dardos que caen por debajo de la curva parabólica
+    return (y <= x * x) ? 1 : 0;
+}
+void obtener_limites_caja(double *xmin, double *xmax, double *ymin, double *ymax) {
+    *xmin = 0.0; *xmax = 1.0;
+    *ymin = 0.0; *ymax = 1.0;
+}
+*/
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -21,24 +38,27 @@ int main(int argc, char** argv) {
     // Usamos long long para miles de millones de simulaciones
     long long N = atoll(argv[1]);
     
-    // Límites de la caja (bounding box) que encierra la figura
-    double x_min = -1.0, x_max = 1.0;
-    double y_min = -1.0, y_max = 1.0;
-    double area_caja = (x_max - x_min) * (y_max - y_min); // 2 * 2 = 4
+    // Configuración automática de la caja geométrica acoplada a la figura
+    double x_min, x_max, y_min, y_max;
+    obtener_limites_caja(&x_min, &x_max, &y_min, &y_max);
+    double area_caja = (x_max - x_min) * (y_max - y_min);
 
     int id, n_procesos;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
     MPI_Comm_size(MPI_COMM_WORLD, &n_procesos);
 
-    // Semilla distinta por proceso
-    srand(time(NULL) + id * 1999);
+    // Semilla REPRODUCIBLE. Eliminamos time(NULL).
+    // Usamos una base fija + el id multiplicado por un primo grande.
+    // Cambiamos a srand48() para tener un PRNG de 48-bits (mayor período).
+    long int semilla_base = 12345;
+    srand48(semilla_base + id * 999983);
 
     // Sincronizamos procesos antes de arrancar el cronómetro
     MPI_Barrier(MPI_COMM_WORLD);
     double tiempo_inicio = MPI_Wtime();
 
-    // Balance de carga estático
+    // Balance de carga estático perfecto
     long long puntos_locales = N / n_procesos;
     long long resto = N % n_procesos;
     if (id < resto) {
@@ -48,9 +68,9 @@ int main(int argc, char** argv) {
     // Bucle de simulación 2D (Aceptación/Rechazo)
     long long aciertos_locales = 0;
     for (long long i = 0; i < puntos_locales; i++) {
-        // Lanzamos un dardo aleatorio dentro de la caja
-        double x_rand = x_min + ((double)rand() / RAND_MAX) * (x_max - x_min);
-        double y_rand = y_min + ((double)rand() / RAND_MAX) * (y_max - y_min);
+        // drand48() devuelve automáticamente un double entre 0.0 y 1.0
+        double x_rand = x_min + drand48() * (x_max - x_min);
+        double y_rand = y_min + drand48() * (y_max - y_min);
         
         // Verificamos si cayó dentro de nuestra figura irregular
         if (dentro_figura_irregular(x_rand, y_rand)) {

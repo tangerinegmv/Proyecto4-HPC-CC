@@ -9,10 +9,17 @@ CSV_FILE="area_resultados.csv"
 echo "N,procesos,ejecucion,tiempo_segundos,valor_estimado" > $CSV_FILE
 
 # 3. Definir las variables a explorar
-N_VALUES=(10000 1000000 100000000 1000000000)
 
-# Escribe manualmente aquí la lista exacta de procesos que quieres probar.
-# Si MPI arroja error, usa números menores a la cantidad de tus núcleos físicos reales.
+# ==== CONFIGURACIÓN PARA SERVIDOR HPC (128 NÚCLEOS) ====
+# Llevamos N a niveles extremos para que el tiempo de cómputo domine al overhead de MPI.
+# 10 Millones, 1 Mil Millones, 100 Mil Millones.
+#N_VALUES=(10000 1000000 10000000 1000000000 100000000000)
+# Escabilidad agresiva hasta 128 núcleos.
+#PROCESOS=(1 2 4 8 16 32 64 96 128)
+
+# ==== CONFIGURACIÓN LOCAL PARA WSL ====
+# Si pruebas localmente en tu PC, comenta las dos líneas de arriba y descomenta estas:
+N_VALUES=(10000 1000000 100000000 1000000000)
 PROCESOS=(1 2 4 6)
 
 # La cátedra pide la "mediana de múltiples ejecuciones". Haremos 5 repeticiones.
