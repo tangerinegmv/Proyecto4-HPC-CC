@@ -13,7 +13,9 @@
 // La ecuación del círculo es x^2 + y^2 = 1. Despejando 'y', la curva superior es y = sqrt(1 - x^2).
 // Multiplicamos por 2 para abarcar tanto el área superior como la inferior del círculo.
 double funcion(double x) {
-    return 2.0 * sqrt(1.0 - x * x);
+    double radicando = 1.0 - x * x;
+    if (radicando < 0.0) radicando = 0.0;
+    return 2.0 * sqrt(radicando);
 }
 void obtener_limites_integracion(double *a, double *b) {
     *a = -1.0;
@@ -77,7 +79,7 @@ int main(int argc, char** argv) {
     double suma_total = 0.0;
     MPI_Reduce(&suma_local, &suma_total, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    // Medir tiempo final
+    // Medir tiempo final (concluye la fase paralela de cómputo y comunicación)
     double tiempo_fin = MPI_Wtime();
 
     // El proceso maestro calcula el promedio, el área final y muestra resultados
