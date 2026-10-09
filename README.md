@@ -6,38 +6,39 @@ El objetivo central es comparar el rendimiento, la convergencia y la escalabilid
 1. **Integración 1D** (Método del Valor Medio).
 2. **Cálculo de Área Irregular 2D** (Método de Aceptación/Rechazo).
 
-### 📐 Geometrías Analizadas
-Para garantizar una comparación científica y algorítmica impecable, el sistema ha sido diseñado para resolver las mismas figuras bajo los dos enfoques diferentes (1D y 2D):
+### Geometrías Analizadas
+Hemos decidido abordar el proyecto analizando dos funciones distintas, las cuales se someteran a ambos algoritmos, ésto con el fin de tener un estudio más completo, para poder comparar resultados y llegar a una conclusión más robusta, siguiendo con lo pedido en la consigna. Las figuras elegidas son:
 
 1. **El Círculo Unitario ($r=1$):**
-   * **En Área 2D:** Se lanza dentro de una caja de límites $[-1, 1] \times [-1, 1]$ validando la condición matemática pura $x^2 + y^2 \le 1$.
    * **En Integral 1D:** Se integra analíticamente la mitad superior del círculo mediante la función $f(x) = 2 \sqrt{1 - x^2}$ en el dominio $x \in [-1, 1]$.
+   * **En Área 2D:** Se lanza dentro de una caja de límites $[-1, 1] \times [-1, 1]$ validando la condición matemática $x^2 + y^2 \le 1$.
    * *Objetivo HPC:* Permite comparar qué operación es más costosa para la CPU: generar dos números aleatorios (x e y) vs generar uno solo pero forzar al hardware a evaluar una raíz cuadrada matemática (`sqrt()`).
 2. **La Parábola ($y = x^2$):**
-   * **En Área 2D:** Se comprueba si el dardo cae bajo la curva evaluando lógicamente $y \le x^2$ en la caja $[0, 1] \times [0, 1]$.
    * **En Integral 1D:** Se integra clásicamente $f(x) = x^2$ sobre el dominio $[0, 1]$.
+   * **En Área 2D:** Se comprueba si el dardo cae bajo la curva evaluando lógicamente $y \le x^2$ en la caja $[0, 1] \times [0, 1]$.
    * *Objetivo HPC:* Al ser una función estrictamente multiplicativa y sin carga pesada, expone la latencia cruda de comunicación (overhead de MPI) al escalar a grandes cantidades de nodos.
 
 ---
 
-## 🛡️ Decisiones de Diseño
+## Decisiones de Diseño
 
-A continuación, se detallan y justifican las decisiones de ingeniería tomadas durante el desarrollo, documentadas específicamente como apoyo para la defensa oral del proyecto.
+A continuación, se detallan y justifican las decisiones de ingeniería tomadas durante el desarrollo.
 
 ### 1. Balanceo de Carga (Load Balancing)
-* **Lo que hicimos:** Implementamos un **Balanceo de Carga Estático**. Cada proceso recibe una porción matemática idéntica, y el "resto" de la división entera se distribuye equitativamente sumando una iteración extra a los primeros procesos.
-* **Lo que NO hicimos:** Decidimos **NO** implementar un esquema de distribución dinámica (Arquitectura Maestro-Trabajador / *Master-Worker*).
-* **Justificación:** El Método de Monte Carlo es un problema de naturaleza *Embarrassingly Parallel* (Vergonzosamente Paralelo). El costo de evaluar la función objetivo es idéntico en cada iteración. Un esquema Maestro-Trabajador hubiera introducido una cantidad masiva e innecesaria de comunicación entre los procesos (mensajes MPI de petición de tareas), arruinando la eficiencia.
+* Implementamos un **Balanceo de Carga Estático**. Cada proceso recibe una porción matemática idéntica, y el "resto" de la división entera se distribuye equitativamente sumando una iteración extra a los primeros procesos. Decidimos esto pues el método de Monte Carlo es un problema de naturaleza *Embarrassingly Parallel* (Vergonzosamente Paralelo), el costo de evaluar la función objetivo es idéntico en cada iteración y, al no existir intercambio de mensajes ni consultas en tiempo real entre los hilos o procesos para pedir más tareas, los procesadores aprovechan el 100% de su ciclo de reloj en calcular. Un esquema Maestro-Trabajador hubiera introducido una cantidad masiva e innecesaria de comunicación entre los procesos (mensajes MPI de petición de tareas), arruinando la eficiencia.
 
-### 2. Generación de Números Aleatorios (PRNG)
-* **Lo que hicimos:** Reemplazamos la función básica `rand()` por la familia `drand48()`. Para la semilla, eliminamos el reloj del sistema (`time(NULL)`) e implementamos una semilla reproducible: `srand48(semilla_base + rank * PRIMO)`.
-* **Justificación del Período (`drand48` vs `rand`):** En simulaciones de miles de millones de iteraciones, la función básica de C (`rand()`) se queda corta por su bajo *Período* (la cantidad de números que genera antes de volver a repetir exactamente la misma secuencia circularmente). Al usar `drand48()`, aumentamos el estado matemático a 48-bits, retrasando enormemente el punto en el que los números aleatorios empiezan a ciclar. Esto evita que nuestras simulaciones "revisiten" los mismos puntos una y otra vez, garantizando una convergencia estadística real.
-* **Justificación de la Semilla Reproducible y Distanciada:** Al quitar el reloj del sistema, garantizamos que las ejecuciones sean **reproducibles** (vital para poder replicar hallazgos en la investigación). Además, para evitar que los procesos MPI arranquen con secuencias idénticas, sumamos su `rank` multiplicado por un número primo grande (999983). Matemáticamente, esto aleja drásticamente el punto de partida (estado inicial) de cada proceso dentro de la ruleta aleatoria, evitando que sus flujos se superpongan prematuramente.
+
+### 2. Elección del Generador Pseudoaleatorio (PRNG) y Reproducibilidad:
+* Inicialmente consideramos la implementación de la función clásica rand() de la biblioteca estandar de C que vimos en clase. Sin embargo, identificamos que, a gran escala (miles de millones), el generador agota su ciclo y comienza a repetir la misma secuencia de numeros. Esto sucede porque RAND_MAX también está en las cifras de los miles de millones (10^9 aprox).
+ * Por esta razon, optamos por usar la familia drand48, estándar en POSIX, ya que, amplía el espacio de estados a 48 bits (10^14 aprox.) lo cual garantiza que el ciclo no se agote en corridas masivas, y genera directamente un numero punto flotante double, ahorrando costo de conversión y división en cada iteración. Además, al ser estándar POSIX de C (stdlib.h), compila directamente con mpicc en cualquier PC o clúster sin necesidad de compilar paquetes de terceros.
+ * También nos planteamos la idea de la reproducibilidad de los resultados, por lo que reemplazamos el uso de time(NULL), que dependía del uso del reloj del sistema, y, en su lugar, implementamos un esquema de semillas reproducibles distanciadas, para poder comparar el resultado de los experimentos.
 
 ### 3. Metodología de Medición y Análisis
-* **Lo que hicimos:** Automatizar ejecuciones repetidas para el mismo tamaño de problema y recolectar los tiempos, para luego calcular métricas de rendimiento basadas en la **Mediana**.
-* **Justificación de Múltiples Ejecuciones:** El tiempo de ejecución en cualquier sistema operativo moderno no es perfectamente determinista. Existen interrupciones de hardware, cambios de contexto y procesos de fondo que pueden introducir demoras aleatorias en una ejecución ("ruido del sistema"). Tomar múltiples muestras nos permite obtener una distribución estadística confiable del comportamiento real de nuestro código.
-* **Justificación de usar la Mediana (y no el Promedio):** El promedio (la media matemática) es muy sensible a valores atípicos (*outliers*). Si una ejecución se ralentiza fuertemente porque el servidor decidió ejecutar una tarea de fondo en ese segundo, el promedio se dispararía hacia arriba engañosamente. La mediana, por el contrario, selecciona el valor central de nuestras mediciones, ignorando los extremos anómalos y otorgándonos el "tiempo típico real" del algoritmo en condiciones normales.
+* Lo que hicimos fue implementar el Método de Monte Carlo de Integración y Cálculo de área en dos funciones/figuras distintas, haciendo uso de la paralelización con MPI, para analizar su eficiencia. 
+* Utilizamos la función **MPI_Reduce** que realiza una operación de reducción global (como puede ser calcular el máximo, la suma, hacer un AND lógico, etc) sobre cada uno de los miembros del grupo. La operación de reducción puede ser tanto una predefinida de la lista de operaciones como una operación definida por el usuario. En nuestro caso la utilizamos para el cálculo de la función en N puntos entre a y b para la integral, y para la generación de los N puntos de pruba para el método de Aceptación/Rechazo.
+* Se utilizó un único MPI_Barrier previo a la captura del tiempo inicial con MPI_Wtime(). Si bien, no es necesario para nuestro programa, ya que la operación de reducción es bloqueante de por sí, se tomó esta desición con el fin de aportar buenas practicas y rigurosidad al trabajo, ya que, la operación, garantiza la consistencia del benchmark al sincronizar la largada de todos los procesos distribuidos, evitando sesgos por el retardo de inicialización del runtime de MPI. No se incluyeron barreras adicionales dentro del bucle de simulación para preservar el asincronismo y evitar el degradamiento por el Efecto del Eslabón Más Lento (Straggler Effect). 
+* **Medición del tiempo**: A la hora de tomar los tiempos de ejecución de la paralelización, surgió el planteo de cuándo deberímos tomar el tiempo de fin (el tiempo de inicio era claro). La idea original fue la de hacerlo justo después de la operación de reducción,es decir, medir estrictamente el algoritmo paralelo. Pero, se nos ocurrió que, el cálculo que se hace dentro del proceso raíz, podría afectar al tiempo total y ser significativo. Luego de investigar en foros, decidimos optar por la primera alternativa, ya que es la regla metodológica obligatoria en la comunidad de HPC, y el cálculo es trabajo serial secundario del proceso 0 y no significa un costo significativo de tiempo.
+
 
 
 ## 📊 Análisis de los Resultados
@@ -57,6 +58,14 @@ En base a los fundamentos de HPC y de los métodos estocásticos, a la hora de i
 | 10.000              | MAX         | [Completar]        | [Completar]    | [Completar]       | [Completar]          |
 | 1.000.000.000       | 1           | [Completar]        | [Completar]    | 1.0x              | 1.0                  |
 | 1.000.000.000       | MAX         | [Completar]        | [Completar]    | [Completar]       | [Completar]          |
+
+### Bibliografía
+- [Dynamic Load Balancing of Parallel Monte Carlo Transport Calculations](https://www.osti.gov/biblio/15015938)
+- [drand48](https://pubs.opengroup.org/onlinepubs/007904975/functions/drand48.html)
+- [MPI_Reduce](https://lsi2.ugr.es/jmantas/ppr/ayuda/mpi_ayuda.php?ayuda=MPI_Reduce)
+- [When do I need to use MPI_Barrier()?](https://stackoverflow.com/questions/13305814/when-do-i-need-to-use-mpi-barrier)
+- [MPI global execution time](https://stackoverflow.com/questions/5298739/mpi-global-execution-time)
+- [How do I interpret the results from MPI_Wtime()?](https://scicomp.stackexchange.com/questions/29876/how-do-i-interpret-the-results-from-mpi-wtime)
 
 <!-- 
 💡 CONSEJOS Y RECOMENDACIONES OCULTAS PARA TU DEFENSA ORAL: 
