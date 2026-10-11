@@ -26,8 +26,8 @@ fi
 if [ "$ENTORNO" == "servidor" ] || [ "$ENTORNO" == "server" ]; then
     CSV_FILE="integral_${FIGURA}_servidor.csv"
     # Configuración para Servidor HPC (96 núcleos, 128 GB RAM)
-    N_VALUES=(10000 1000000 10000000 1000000000)
-    PROCESOS=(1 2 4 8 16 32 64 96)
+    N_VALUES=(10000 1000000 10000000 1000000000 100000000000)
+    PROCESOS=(1 2 4 8 16 32 64 96 128)
     echo ">>> Modo seleccionado: SERVIDOR HPC"
     echo ">>> Archivo de salida: $CSV_FILE"
     echo ">>> Procesos: ${PROCESOS[*]}"
