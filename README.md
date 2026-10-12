@@ -28,13 +28,23 @@ A continuación, se detallan y justifican las decisiones de ingeniería tomadas 
 * Implementamos un **Balanceo de Carga Estático**. Cada proceso recibe una porción matemática idéntica, y el "resto" de la división entera se distribuye equitativamente sumando una iteración extra a los primeros procesos. Decidimos esto pues el método de Monte Carlo es un problema de naturaleza *Embarrassingly Parallel* (Vergonzosamente Paralelo), el costo de evaluar la función objetivo es idéntico en cada iteración y, al no existir intercambio de mensajes ni consultas en tiempo real entre los hilos o procesos para pedir más tareas, los procesadores aprovechan el 100% de su ciclo de reloj en calcular. Un esquema Maestro-Trabajador hubiera introducido una cantidad masiva e innecesaria de comunicación entre los procesos (mensajes MPI de petición de tareas), arruinando la eficiencia.
 
 
-### 2. Elección del Generador Pseudoaleatorio (PRNG) y Reproducibilidad:
+### 2. Elección del Generador Pseudoaleatorio (PRNG) y Reproducibilidad
 * Inicialmente consideramos la implementación de la función clásica rand() de la biblioteca estandar de C que vimos en clase. Sin embargo, identificamos que, a gran escala (miles de millones), el generador agota su ciclo y comienza a repetir la misma secuencia de numeros. Esto sucede porque RAND_MAX también está en las cifras de los miles de millones (10^9 aprox).
  * Por esta razon, optamos por usar la familia drand48, estándar en POSIX, ya que, amplía el espacio de estados a 48 bits (10^14 aprox.) lo cual garantiza que el ciclo no se agote en corridas masivas, y genera directamente un numero punto flotante double, ahorrando costo de conversión y división en cada iteración. Además, al ser estándar POSIX de C (stdlib.h), compila directamente con mpicc en cualquier PC o clúster sin necesidad de compilar paquetes de terceros.
  * También nos planteamos la idea de la reproducibilidad de los resultados, por lo que reemplazamos el uso de time(NULL), que dependía del uso del reloj del sistema, y, en su lugar, implementamos un esquema de semillas reproducibles distanciadas, para poder comparar el resultado de los experimentos.
 
+
+### Elección de nro. de simulaciones y procesos
+* Inicialmente se hicieron las pruebas en **PC**, utilizando una unidad más que la máxima capacidad de procesos, es decir, en vez de 4 procesos, probamos 6. Esto fue posible con la función oversubscribe de MPI.
+* Para definir el número de simulaciones (N), decidimos consultar con el profesor, y, tras varias pruebas, dejamos la escala de N como: 10^4, 10^6, 10^7 y 10^9, para PC. Esta decisión se tomó, teniendo en consideración lo máximo que podría aguantar una PC, por sobre el tiempo que nos llevaría el experimento.
+* Para el **servidor**, en un principio, por recomendación del profesor, usamos la máxima capacidad (128 GB RAM y 96 cores), y decidimos usar la escala: 1,2,4,6,8,16,32,64,96,128. Estos numeros se tomaron para la primera toma de datos, que fue la del círculo, luego fue modificada, a una escala de 8 a 96 procesos, cuya justificación se explica en la sección de limitaciones y mejoras.
+* Para elegir el N que usaríamos en el servidor, decidimos agregar uno más al rango elegido para PC. agregamos 10^11 simulaciones. Esto por recomendación del profesor, y para un mejor analisis del comportamiento de la paralelización.
+* En conclusión, los numeros elegidos para los experimentos, fueron decididos teniendo en cuenta, la máxima capacidad de los dispositivos, para poder garantizar la mayor cantidad de datos que eran posibles de recoger. Además, se consideró un límite de tiempo de ejecución en el servidor; nuestro parametro fue que la ejecución de el programa con un solo proceso (serial), para el máximo N, no supere los 20 minutos.
+
+
+
 ### 3. Metodología de Medición y Análisis
-* Lo que hicimos fue implementar el Método de Monte Carlo de Integración y Cálculo de área en dos funciones/figuras distintas, haciendo uso de la paralelización con MPI, para analizar su eficiencia. 
+* Lo que hicimos fue implementar el Método de Monte Carlo de Integración y Cálculo de área en dos funciones/figuras distintas, haciendo uso de la paralelización con MPI, para analizar su eficiencia. Este proceso se llevó a cabo en el servidor facilitado por la cátedra y en las PCs de las integrantes, para poder hacer un analisis y comparación de rendimiento entre los dispositvos.
 * Utilizamos la función **MPI_Reduce** que realiza una operación de reducción global (como puede ser calcular el máximo, la suma, hacer un AND lógico, etc) sobre cada uno de los miembros del grupo. La operación de reducción puede ser tanto una predefinida de la lista de operaciones como una operación definida por el usuario. En nuestro caso la utilizamos para el cálculo de la función en N puntos entre a y b para la integral, y para la generación de los N puntos de pruba para el método de Aceptación/Rechazo.
 * Se utilizó un único MPI_Barrier previo a la captura del tiempo inicial con MPI_Wtime(). Si bien, no es necesario para nuestro programa, ya que la operación de reducción es bloqueante de por sí, se tomó esta desición con el fin de aportar buenas practicas y rigurosidad al trabajo, ya que, la operación, garantiza la consistencia del benchmark al sincronizar la largada de todos los procesos distribuidos, evitando sesgos por el retardo de inicialización del runtime de MPI. No se incluyeron barreras adicionales dentro del bucle de simulación para preservar el asincronismo y evitar el degradamiento por el Efecto del Eslabón Más Lento (Straggler Effect). 
 * **Medición del tiempo**: A la hora de tomar los tiempos de ejecución de la paralelización, surgió el planteo de cuándo deberímos tomar el tiempo de fin (el tiempo de inicio era claro). La idea original fue la de hacerlo justo después de la operación de reducción,es decir, medir estrictamente el algoritmo paralelo. Pero, se nos ocurrió que, el cálculo que se hace dentro del proceso raíz, podría afectar al tiempo total y ser significativo. Luego de investigar en foros, decidimos optar por la primera alternativa, ya que es la regla metodológica obligatoria en la comunidad de HPC, y el cálculo es trabajo serial secundario del proceso 0 y no significa un costo significativo de tiempo.
@@ -46,6 +56,7 @@ A continuación, se detallan y justifican las decisiones de ingeniería tomadas 
 ### Expectativas Teóricas
 En base a los fundamentos de HPC y de los métodos estocásticos, a la hora de interpretar las gráficas obtenemos los siguientes comportamientos esperados:
 - **Convergencia del Error Absoluto:** Por la Ley de los Grandes Números, a medida que $N$ aumenta, el error debe decrecer de forma inversamente proporcional a la raíz cuadrada de $N$ ($1/\sqrt{N}$). En nuestra gráfica Log-Log, esto se debe observar como una línea recta descendente y constante.
+
 - **Speedup Real vs Ideal:** El Speedup Ideal traza una línea recta (donde $P$ procesos reducen el tiempo $P$ veces). En la realidad, la línea de nuestro código correrá por debajo de la ideal. La separación entre ambas líneas representa el *overhead* (el costo de inicializar MPI, balancear variables, y la comunicación final en el `MPI_Reduce`).
 - **Eficiencia:** La eficiencia inicia en 1.0 (o 100%) para 1 proceso. Debería ir decayendo levemente a medida que agregamos núcleos (Ley de Amdahl). Esta caída es consecuencia de que el bus de memoria caché se satura cuando todos los procesadores intentan consultar datos o escribir variables simultáneamente.
 
@@ -59,7 +70,19 @@ En base a los fundamentos de HPC y de los métodos estocásticos, a la hora de i
 | 1.000.000.000       | 1           | [Completar]        | [Completar]    | 1.0x              | 1.0                  |
 | 1.000.000.000       | MAX         | [Completar]        | [Completar]    | [Completar]       | [Completar]          |
 
-### Bibliografía
+## Limitaciones y Mejoras Futuras
+A lo largo del proceso de investigación y prueba tomamos desiciones y descubrimos limitaciones o mejoras que se pueden resolver/implementar a futuro.
+
+### Elección del Generador Pseudoaleatorio (PRNG):
+En nuestro código base priorizamos la portabilidad estándar POSIX con drand48(). Para una futura versión, la mejora recomendada es migrar a generadores basados en contadores como Philox (Random123) o bibliotecas especializadas como SPRNG.
+
+### Elección de N y procesos
+En la sección donde explicamos por qué tomamos los numeros que tomamos, se aclara que hubo una reducción en el numero de procesos tomados, para la segunda figura estudiada, que fue la parábola.
+Cuando hicimos las pruebas con los valores originales, la ejecución, en total, nos tomó 12 horas. Lo que, consultando con el profe y debatiendo en grupo, concluímos que era demasiado tiempo. Por lo que, se limitó la máxima capacidad de computo, para que el experimento se lleve a cabo en un tiempo más corto. Consideramos esta desicion la más óptima para este proyecto, ya que no afecta en gran escala a las conclusiones finales.
+Por último, se decidió tomar 5 repeticiones por nro de procesos, por la misma razón de optimizar tiempos.
+Para una futura versión, la mejora recomendada es medir ambas figuras con la misma cantidad de procesos, o bajar el nro de N, y aumentar la cantidad de repeticiones, para obtener un conjunto de datos más robustos.
+
+## Bibliografía
 - [Dynamic Load Balancing of Parallel Monte Carlo Transport Calculations](https://www.osti.gov/biblio/15015938)
 - [drand48](https://pubs.opengroup.org/onlinepubs/007904975/functions/drand48.html)
 - [MPI_Reduce](https://lsi2.ugr.es/jmantas/ppr/ayuda/mpi_ayuda.php?ayuda=MPI_Reduce)
