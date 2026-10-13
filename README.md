@@ -151,7 +151,10 @@ Un dato para tener presente: el Área 2D de la parábola (23.8 ns) sale algo má
 A lo largo del proceso de investigación y prueba tomamos decisiones y descubrimos limitaciones o mejoras que se pueden resolver o implementar a futuro.
 
 ### Elección del Generador Pseudoaleatorio (PRNG)
-En nuestro código base priorizamos la portabilidad estándar POSIX con drand48(). Para una futura versión, la mejora recomendada es migrar a generadores basados en contadores como Philox (Random123) o bibliotecas especializadas como SPRNG.
+En nuestro código base priorizamos la portabilidad estándar POSIX con drand48(). 
+Luego de implementar, descubrimos que para paralelizacion el drand() tiene problemas para la reproducibilidad en simulaciones cientificas. Al no haber control sobre qué hilo accede primero a la función global, el orden en el que se actualiza el estado cambia en cada ejecución, dependiendo puramente del planificador del sistema operativo (OS scheduler). Esto resulta en que, aunque usemos la misma semilla inicial, cada ejecución paralela dará valores aleatorios diferentes
+
+Para una futura versión, la mejora recomendada es migrar a generadores basados en contadores como Philox (Random123) o bibliotecas especializadas como SPRNG.
 
 ### Elección de N y procesos
 En la sección donde explicamos por qué tomamos los números que tomamos, se aclara que hubo una reducción en el número de procesos para la segunda figura estudiada, que fue la parábola.
