@@ -37,7 +37,7 @@ A continuación, se detallan y justifican las decisiones de ingeniería tomadas 
 ### Elección de nro. de simulaciones y procesos
 * Inicialmente se hicieron las pruebas en **PC**, utilizando una unidad más que la máxima capacidad de procesos, es decir, en vez de 4 procesos, probamos 6. Esto fue posible con la función oversubscribe de MPI.
 * Para definir el número de simulaciones (N), decidimos consultar con el profesor, y, tras varias pruebas, dejamos la escala de N como: 10^4, 10^6, 10^7 y 10^9, para PC. Esta decisión se tomó, teniendo en consideración lo máximo que podría aguantar una PC, por sobre el tiempo que nos llevaría el experimento.
-* Para el **servidor**, en un principio, por recomendación del profesor, usamos la máxima capacidad (128 GB RAM y 96 cores), y decidimos usar la escala: 1,2,4,6,8,16,32,64,96,128. Estos numeros se tomaron para la primera toma de datos, que fue la del círculo, luego fue modificada, a una escala de 8 a 96 procesos, cuya justificación se explica en la sección de limitaciones y mejoras.
+* Para el **servidor**, en un principio, por recomendación del profesor, usamos la máxima capacidad (384 GB RAM y 96 cores), y decidimos usar la escala: 1,2,4,6,8,16,32,64,96,128. Estos numeros se tomaron para la primera toma de datos, que fue la del círculo, luego fue modificada, a una escala que toma al proceso 1 y del 8 al 96, cuya justificación se explica en la sección de limitaciones y mejoras.
 * Para elegir el N que usaríamos en el servidor, decidimos agregar uno más al rango elegido para PC. agregamos 10^11 simulaciones. Esto por recomendación del profesor, y para un mejor analisis del comportamiento de la paralelización.
 * En conclusión, los numeros elegidos para los experimentos, fueron decididos teniendo en cuenta, la máxima capacidad de los dispositivos, para poder garantizar la mayor cantidad de datos que eran posibles de recoger. Además, se consideró un límite de tiempo de ejecución en el servidor; nuestro parametro fue que la ejecución de el programa con un solo proceso (serial), para el máximo N, no supere los 20 minutos.
 
@@ -52,22 +52,68 @@ A continuación, se detallan y justifican las decisiones de ingeniería tomadas 
 
 ## 📊 Análisis de los Resultados
 
-### Expectativas Teóricas
 En base a los fundamentos de HPC y de los métodos estocásticos, a la hora de interpretar las gráficas obtenemos los siguientes comportamientos esperados:
-- **Convergencia del Error Absoluto:** Por la Ley de los Grandes Números, a medida que $N$ aumenta, el error debe decrecer de forma inversamente proporcional a la raíz cuadrada de $N$ ($1/\sqrt{N}$). En nuestra gráfica Log-Log, esto se debe observar como una línea recta descendente y constante.
+### **Convergencia del Error Absoluto:**
+Por la Ley de los Grandes Números, a medida que $N$ aumenta, el error debe decrecer de forma inversamente proporcional a la raíz cuadrada de $N$ ($1/\sqrt{N}$). En nuestra gráfica Log-Log, esto se debe observar como una línea recta descendente y constante.
 
-- **Speedup Real vs Ideal:** El Speedup Ideal traza una línea recta (donde $P$ procesos reducen el tiempo $P$ veces). En la realidad, la línea de nuestro código correrá por debajo de la ideal. La separación entre ambas líneas representa el *overhead* (el costo de inicializar MPI, balancear variables, y la comunicación final en el `MPI_Reduce`).
-- **Eficiencia:** La eficiencia inicia en 1.0 (o 100%) para 1 proceso. Debería ir decayendo levemente a medida que agregamos núcleos (Ley de Amdahl). Esta caída es consecuencia de que el bus de memoria caché se satura cuando todos los procesadores intentan consultar datos o escribir variables simultáneamente.
+**Resultados**
 
-### Plantilla de Resultados Numéricos
-*(Completar esta tabla una vez que se ejecuten los scripts en el servidor adecuado para la defensa)*
+![convergencia estocástica del círculo](image.png)
 
-| Tamaño Problema (N) | N° Procesos | Tiempo Mediana (s) | Error Absoluto | Speedup Calculado | Eficiencia Calculada |
-|---------------------|-------------|--------------------|----------------|-------------------|----------------------|
-| 10.000              | 1           | [Completar]        | [Completar]    | 1.0x              | 1.0                  |
-| 10.000              | MAX         | [Completar]        | [Completar]    | [Completar]       | [Completar]          |
-| 1.000.000.000       | 1           | [Completar]        | [Completar]    | 1.0x              | 1.0                  |
-| 1.000.000.000       | MAX         | [Completar]        | [Completar]    | [Completar]       | [Completar]          |
+Podemos notar en esta gráfica que analiza los datos arrojados por el servidor, cómo se comporta de manera esperada, hasta las 10^9 simulaciones, donde, el cálculo de la integral sufre un estancamiento.
+El error deja de disminuir, aunque no aumenta, se mantiene constante. 
+
+Esto no sucede para el Area, que si baja el error absoluto a medida que aumenta N.
+
+
+### **Speedup Real vs Ideal:** 
+El Speedup Ideal traza una línea recta (donde $P$ procesos reducen el tiempo $P$ veces). En la realidad, la línea de nuestro código correrá por debajo de la ideal. La separación entre ambas líneas representa el *overhead* (el costo de inicializar MPI, balancear variables, y la comunicación final en el `MPI_Reduce`).
+
+ **Resultados**
+
+![speedup vs proceso: circulo](image-1.png)
+
+Se observa claramente, como para un N muy pequeño (10⁴) la paralelización es ineficiente y no debería ser considerada para el método. 
+
+Luego,para el resto de N, se observa que hasta los 64 procesos, tienen un comportamiento mas o menos ideal, es decir, el Speedup aumenta. 
+
+Los resultados son los esperados, a partir de 64 procesos comienza a notarse un estancamiento del Speedpp. Es decir, el crecimiento es poco o directamente se mantiene constante, mientras que, para los N más pequeños hay, incluso, una disminusión significativa del Speedup.
+
+En este punto, es interesante explicar un poco la arquitectura del Hardware del servidor. Entre 1 y 64 procesos, todos los núcleos residen en el Socket 0. La comunicación es local al chip. Al pasar de 64 procesos, MPI se ve obligado a utilizar el Socket 1. La comunicación ya no viaja por el silicio local, sino a través del bus inter-socket AMD Infinity Fabric. 
+
+
+### ¿Con cuántos procesos conviene correr cada N?
+
+En un principio, la intuición nos haría pensar que mientras más procesos, más rápido y mejor funciona el programa. Luego de llevar a cabo los experimentos para el proyecto, podemos pensar que el Speedup es mejor a medida que el nro de procesos aumenta de manera proporcional con N. 
+
+La siguiente gráfica nos aclara las cosas:
+
+![mejor N vs np](image-4.png)
+
+Podemos observar que, efectivamente, para N=10⁴ el mejor Speedup se logra con 16 procesos, mientras que, 10⁶ simulaciones necesita 64. A partir de 10⁷, el mejor speedup se consigue con 96-128 procesos.
+
+### **Eficiencia:**
+La eficiencia inicia en 1.0 (o 100%) para 1 proceso. Debería ir decayendo levemente a medida que agregamos núcleos. Esta caída es consecuencia de que el bus de memoria caché se satura cuando todos los procesadores intentan consultar datos o escribir variables simultáneamente.
+
+**Resultados**
+
+![eficiencia paralela: circulo](image-3.png)
+
+En nuestras gráficas se puede apreciar que el algoritmo paraleliza casi perfectamente (con una eficiencia de aprox 1) hasta 8-16 procesos para N grande, llegando hasta 32 en el cálculo de la integral.
+
+### Comparación de Rendimiento: PC Local vs Servidor HPC
+![pc vs servidor](image-5.png)
+1. El servidor (representado por líneas verdes) demuestra un escalamiento óptimo.
+   - Speedup: Crece de manera lineal, acompañando a la línea ideal
+   - Eficiencia: Se mantiene estable y cercana a 1, esto se debe a la buena distribución de carga para los primeros 8 procesos.
+2. El PC sufre limitaciones de arquitectura.
+   - Escala de forma razonable hasta 4 procesos, debido a que posee 4 núcleos físicos.
+3. Aceleración Superlineal (Efecto Caché)
+   El fenómeno más destacable del experimento ocurre en el cálculo de **Área 2D** para la PC ejecutando la carga de datos más pesada (N=109, línea violeta continua) al usar **2 procesos MPI** 
+   - El Speedup supera la diagonal teórica, logrando una **Eficiencia mayor a 1.0** (superior al 100%). 
+   - Esto se conoce como **aceleración superlineal**. Al particionar el bloque masivo de 10^9 elementos entre 2 procesos, los conjuntos de datos resultantes logran encajar de manera mucho más óptima dentro de la memoria caché local de los núcleos del procesador. 
+   - Al resolver el problema accediendo a la caché rápida en lugar de ir constantemente a la memoria RAM (más lenta), el procesador ahorra tanto tiempo que supera la aceleración teóricamente esperada por simplemente sumar un proceso extra. 
+
 
 ## Limitaciones y Mejoras Futuras
 
@@ -92,7 +138,7 @@ Para una futura versión, la mejora recomendada es medir ambas figuras con la mi
 - [When do I need to use MPI_Barrier()?](https://stackoverflow.com/questions/13305814/when-do-i-need-to-use-mpi-barrier)
 - [MPI global execution time](https://stackoverflow.com/questions/5298739/mpi-global-execution-time)
 - [How do I interpret the results from MPI_Wtime()?](https://scicomp.stackexchange.com/questions/29876/how-do-i-interpret-the-results-from-mpi-wtime)
-
+- [¿Qué es la Ley de Amdahal?](https://builtin-com.translate.goog/articles/amdahls-law?_x_tr_sl=en&_x_tr_tl=es&_x_tr_hl=es&_x_tr_pto=tc)
 <!-- 
 💡 CONSEJOS Y RECOMENDACIONES OCULTAS PARA TU DEFENSA ORAL: 
 1. Anomalías con N pequeños (ej. N=10.000): Si observas que con 10.000 simulaciones usar 8 procesos demora MÁS TIEMPO que usar 1 proceso (Speedup menor a 1), ¡no te asustes y úsalo a tu favor! Explícale al profesor que "para problemas diminutos, el costo de coordinar y enviar mensajes entre los nodos de MPI demora más tiempo que simplemente resolver la matemática localmente".
