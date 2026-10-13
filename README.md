@@ -131,6 +131,16 @@ Por último, se decidió tomar 5 repeticiones por nro de procesos, por la misma 
 
 Para una futura versión, la mejora recomendada es medir ambas figuras con la misma cantidad de procesos, o bajar el nro de N, y aumentar la cantidad de repeticiones, para obtener un conjunto de datos más robustos.
 
+## Conclusión
+
+El desarrollo y análisis experimental de este proyecto permitieron validar de manera empírica los principios fundamentales de la Computación de Alto Rendimiento (HPC) aplicados a métodos estocásticos:
+
+1. **Precisión Numérica y Convergencia:** Tanto el método de Integración 1D (Valor Medio) como el de Cálculo de Área Irregular 2D (Aceptación/Rechazo) demostraron cumplir con la Ley de los Grandes Números, reduciendo el error absoluto a razón de $1/\sqrt{N}$. La migración al generador `drand48()` con semillas reproducibles distanciadas resultó determinante para evitar el agotamiento del período pseudoaleatorio y garantizar la independencia estadística en simulaciones masivas de hasta $10^{11}$ iteraciones.
+2. **Escalabilidad y Ley de Amdahl:** Al tratarse de un problema *Embarrassingly Parallel*, el esquema de **balanceo de carga estático** combinado con una única operación colectiva (`MPI_Reduce`) demostró ser la decisión de diseño óptima, eliminando cuellos de botella por paso de mensajes. Asimismo, quedó demostrado que paralelizar no siempre implica acelerar: para cargas pequeñas ($N = 10^4$), el *overhead* de inicialización y sincronización de MPI supera al tiempo de cómputo serial, mientras que para volúmenes masivos ($N \ge 10^7$), el paralelismo amortiza la latencia de red y permite alcanzar aceleraciones sobresalientes.
+3. **Impacto de la Arquitectura de Hardware:** El contraste entre la PC local y el Servidor HPC evidenció cómo el rendimiento del software está estrictamente gobernado por la topología física subyacente. Mientras que la PC encontró su techo de escalabilidad al agotar sus 4 núcleos físicos reales, el servidor sostuvo un crecimiento casi lineal hasta los 64 procesos dentro de un mismo socket físico, reflejando luego el costo físico de comunicación inter-socket a través del bus *AMD Infinity Fabric* al escalar a 96 y 128 procesos.
+
+En definitiva, lograr eficiencia en HPC no depende únicamente de escribir un algoritmo paralelo correcto, sino de comprender profundamente cómo interactúan la complejidad matemática, el tamaño del problema y la arquitectura física del hardware.
+
 ## Bibliografía
 - [Dynamic Load Balancing of Parallel Monte Carlo Transport Calculations](https://www.osti.gov/biblio/15015938)
 - [drand48](https://pubs.opengroup.org/onlinepubs/007904975/functions/drand48.html)
